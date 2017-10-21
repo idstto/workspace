@@ -45,3 +45,4 @@ This was created by [Indra Settyo](https://github.com/idstto) (indra.settyo/gmai
 [Jenkins]: <https://jenkins.io/>
 [Ruby]: <https://www.ruby-lang.org/>
 [Rails]: <https://github.com/rails/rails>
+[Django]: <https://www.djangoproject.com/>
