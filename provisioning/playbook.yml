@@ -1,0 +1,586 @@
+---
+- hosts: controller
+  tasks:
+  - name: Install sshpass
+    become: true
+    become_method: sudo
+    apt:
+      name: sshpass
+      state: present
+      update_cache: yes
+
+  - name: Generate SSH Key
+#    become: true
+#    become_method: su
+#    become_method: sudo
+    user:
+      name: ubuntu
+      state: present
+      generate_ssh_key: yes
+      ssh_key_bits: 2048
+#      ssh_key_file: /root/.ssh/id_rsa
+      ssh_key_file: ~/.ssh/id_rsa
+
+- hosts: database
+  vars:
+    db_user: indra
+    db_password: rahasia
+  remote_user: ubuntu
+  tasks:
+  - name: Set authorized key
+#    become: true
+#    become_method: sudo
+    authorized_key:
+      user: ubuntu
+      state: present
+      key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+#      user: root
+#      keyfile: '/root/.ssh/authorized_keys'
+#      key: "{{ lookup('file', '/root/.ssh/id_rsa.pub') }}"
+
+  - name: MySQL | Install MySQL-Python module #The MySQL-python module is required.
+    become: true
+    become_method: sudo
+    apt:
+      name: python-mysqldb
+      state: present
+
+  - name: MySQL | Install psycopg2 module #the python psycopg2 module is required
+    become: true
+    become_method: sudo
+    apt:
+      name: python-psycopg2
+      state: present
+
+  - name: MySQL | Install MySQL
+    become: true
+    become_method: sudo
+    apt:
+      name: mysql-server
+      state: present
+      update_cache: yes
+
+  - name: MySQL | Ensure MySQL service is running
+    systemd: name=mysql state=started enabled=true
+    become: true
+    become_method: sudo
+
+  - name: MySQL | Change MySQL bind-address #so host machine can access mysql
+    become: true
+    become_method: sudo
+    ini_file:
+      path: /etc/mysql/mysql.conf.d/mysqld.cnf
+      section: mysqld
+      option: bind-address
+      value: 0.0.0.0
+      state: present
+      backup: yes
+
+  - name: MySQL | Stop MySQL service
+    systemd: name=mysql state=stopped
+    become: true
+    become_method: sudo
+
+  - name: MySQL | Start MySQL service
+    systemd: name=mysql state=started
+    become: true
+    become_method: sudo
+
+  - name: MySQL | Set root password
+    become: true
+    become_method: sudo
+    mysql_user:
+      login_user: root
+      name: root
+      password: "{{ db_password }}"
+      host_all: yes
+      state: present
+
+  - name: MySQL | Remove anonymous password
+    become: true
+    become_method: sudo
+    mysql_user:
+      login_user: root
+      login_password: "{{ db_password }}"
+      name: ''
+      host_all: yes
+      state: absent
+
+#  - name: MySQL | Remove empty password for root user
+#    become: true
+#    become_method: sudo
+#    mysql_user:
+#      login_user: root
+#      login_password: "{{ db_password }}"
+#      name: root
+#      password: ''
+#      host_all: yes
+#      state: absent
+
+  - name: MySQL | Add mysql user
+    become: true
+    become_method: sudo
+    mysql_user:
+      login_user: root
+      login_password: "{{ db_password }}"
+      name: "{{ db_user }}"
+      password: "{{ db_password }}"
+      host: "%"
+      priv: '*.*:ALL'
+      state: present
+
+  - name: PostgreSQL | Install PostgreSQL
+    become: true
+    become_method: sudo
+    apt:
+      name: postgresql
+      state: present
+
+  - name: PostgreSQL | Install PostgreSQL Contrib
+    become: true
+    become_method: sudo
+    apt:
+      name: postgresql-contrib
+      state: present
+
+  - name: PostgreSQL | Ensure PostgreSQL service is running
+    systemd: name=postgresql state=started enabled=true
+    become: true
+    become_method: sudo
+
+  - name: PostgreSQL | Add PostgreSQL user
+    become: true
+    become_user: postgres
+    become_method: sudo
+    postgresql_user:
+      login_user: postgres
+#      login_host: "*"
+      name: postgres
+      password: "{{ db_password }}"
+
+  - name: MongoDB | Download MongoDB key
+    become: true
+    become_method: sudo
+    apt_key:
+      url: https://www.mongodb.org/static/pgp/server-3.4.asc
+      state: present
+
+  - name: MongoDB | Create the /etc/apt/sources.list.d/mongodb-org-3.4.list
+    become: true
+    become_method: sudo
+    lineinfile:
+      path: /etc/apt/sources.list.d/mongodb-org-3.4.list
+      line: 'deb [ arch=amd64,arm64 ] http://repo.mongodb.org/apt/ubuntu xenial/mongodb-org/3.4 multiverse'
+      state: present
+      create: yes
+
+  - name: MongoDB | Install MongoDB
+    become: true
+    become_method: sudo
+    apt:
+      name: mongodb-server
+      state: present
+      update_cache: yes
+
+  - name: MongoDB | Ensure MongoDB service is running
+    systemd: name=mongodb state=started enabled=true
+    become: true
+    become_method: sudo
+
+  - name: Redis | Download Redis archive
+    get_url:
+      url: http://download.redis.io/releases/redis-4.0.2.tar.gz
+      dest: ~/
+
+  - name: Redis | Extract Redis archive
+    unarchive:
+      src: ~/redis-4.0.2.tar.gz
+      dest: ~/
+      remote_src: yes
+
+  - name: Redis | Setup Redis
+    become: true
+    become_method: sudo
+    shell: |
+      cd /home/ubuntu/redis-4.0.2
+      make
+      make test
+      make install
+      mkdir /etc/redis
+      cp /vagrant/provisioning/redis.conf /etc/redis
+      cp /vagrant/provisioning/redis.service /etc/systemd/system/
+      exit 0
+    args:
+      chdir: ~/
+
+  - name: Redis | Add redis group
+    become: true
+    become_method: sudo
+    group:
+      name: redis
+      state: present
+
+  - name: Redis | Add redis user
+    become: true
+    become_method: sudo
+    user:
+      name: redis
+      comment: "Redis user"
+      system: yes
+      group: redis
+      createhome: no
+      state: present
+
+  - name: Redis | Setup Redis
+    become: true
+    become_method: sudo
+    shell: |
+      mkdir /var/lib/redis
+      chown redis:redis /var/lib/redis
+      chmod 770 /var/lib/redis
+      exit 0
+    args:
+      chdir: ~/
+
+#  - name: Redis | Ensure Redis service is running
+#    systemd: name=redis state=started enabled=true
+#    become: true
+#    become_method: sudo
+
+  - name: RabbitMQ | Download RabbitMQ key
+    become: true
+    become_method: sudo
+    apt_key:
+      url: https://www.rabbitmq.com/rabbitmq-release-signing-key.asc
+      state: present
+
+  - name: RabbitMQ | Install RabbitMQ
+    become: true
+    become_method: sudo
+    apt:
+      name: rabbitmq-server
+      state: present
+      update_cache: yes
+
+  - name: Beanstalkd | Install Beanstalkd
+    become: true
+    become_method: sudo
+    apt:
+      name: beanstalkd
+      state: present
+      update_cache: yes
+
+  - name: Beanstalkd | Install supervisor
+    become: true
+    become_method: sudo
+    apt:
+      name: supervisor
+      state: present
+      update_cache: yes
+
+#  - name: Beanstalkd | Ensure Beanstalkd service is running
+#    systemd: name=beanstalkd state=started enabled=true
+#    become: true
+#    become_method: sudo
+
+#  - name: MongoDB | Add mongodb user
+#    become: true
+#    become_method: sudo
+#    mongodb_user:
+#      name: "{{ db_user }}"
+#      password: "{{ db_password }}"
+#      state: present
+
+- hosts: api
+  remote_user: ubuntu
+  tasks:
+  - name: Set authorized key
+#    become: true
+#    become_method: sudo
+    authorized_key:
+      user: ubuntu
+      state: present
+      key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+
+#   Make sure apache2 stopped before install nginx, or will error: Job for nginx.service failed because the control process exited with error code. See "systemctl status nginx.service" and "journalctl -xe" for details.
+  - name: NGINX | Ensure apache2 stopped
+    systemd: name=apache2 state=stopped enabled=false
+    check_mode: yes
+
+  - name: NGINX | Install Nginx
+    become: true
+    become_method: sudo
+    apt:
+      name: nginx
+      state: present
+      update_cache: yes
+
+  - name: NGINX | Ensure Nginx service is running
+    systemd: name=nginx state=started enabled=true
+
+  - name: PHP | Add ppa repository
+    become: true
+    become_method: sudo
+    apt_repository:
+      repo: 'ppa:ondrej/php'
+      update_cache: yes
+
+  - name: PHP | Install PHP
+    become: true
+    become_method: sudo
+    apt:
+      name: php7.1
+      state: present
+      update_cache: yes
+
+  - name: PHP | Install PHP MySQL
+    become: true
+    become_method: sudo
+    apt:
+      name: php7.1-mysql
+      state: present
+
+  - name: PHP | Install PHP fpm
+    become: true
+    become_method: sudo
+    apt:
+      name: php7.1-fpm
+      state: present
+
+  - name: Golang | Download Golang archive
+    become: true
+    become_method: sudo
+    get_url:
+      url: https://storage.googleapis.com/golang/go1.9.1.linux-amd64.tar.gz
+      dest: ~/
+
+  - name: Golang | Extract Golang archive
+    become: true
+    become_method: sudo
+    unarchive:
+      src: ~/go1.9.1.linux-amd64.tar.gz
+      dest: /usr/local
+      remote_src: yes
+
+  - name: Golang | Setup golang path
+    lineinfile:
+      path: ~/.profile
+      line: 'export PATH="$PATH:/usr/local/go/bin"'
+      insertafter: EOF
+      state: present
+      create: yes
+
+  - name: Jenkins | Download Jenkins key
+    become: true
+    become_method: sudo
+    apt_key:
+      url: https://pkg.jenkins.io/debian-stable/jenkins.io.key
+      state: present
+
+  - name: Jenkins | Create the /etc/apt/sources.list.d/jenkins.list
+    become: true
+    become_method: sudo
+    lineinfile:
+      path: /etc/apt/sources.list.d/jenkins.list
+      line: 'deb http://pkg.jenkins.io/debian-stable binary/'
+      state: present
+      create: yes
+
+  - name: Jenkins | Install Jenkins
+    become: true
+    become_method: sudo
+    apt:
+      name: jenkins
+      state: present
+      update_cache: yes
+
+- hosts: webmachines
+  remote_user: ubuntu
+  tasks:
+  - name: Set authorized key
+#    become: true
+#    become_method: sudo
+    authorized_key:
+      user: ubuntu
+      state: present
+      key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+
+- hosts: web1
+  vars:
+    ruby_version: 2.4.2
+    rails_version: 5.1.4
+  remote_user: ubuntu
+  tasks:
+  - name: ROR | Install Ruby on Rails dependencies - nodejs
+    become: true
+    become_method: sudo
+    apt:
+      name: nodejs
+      state: present
+      install_recommends: yes
+
+  - name: ROR | Install Ruby on Rails dependencies - git-core
+    become: true
+    become_method: sudo
+    apt:
+      name: git-core
+      state: present
+      install_recommends: yes
+
+  - name: ROR | Install Ruby on Rails dependencies - curl
+    become: true
+    become_method: sudo
+    apt:
+      name: curl
+      state: present
+      install_recommends: yes
+
+  - name: ROR | Install Ruby on Rails dependencies - build-essential
+    become: true
+    become_method: sudo
+    apt:
+      name: build-essential
+      state: present
+      install_recommends: yes
+
+  - name: ROR | Install Ruby on Rails dependencies - libssl-dev
+    become: true
+    become_method: sudo
+    apt:
+      name: libssl-dev
+      state: present
+      install_recommends: yes
+
+  - name: ROR | Install Ruby on Rails dependencies - libssl-doc
+    become: true
+    become_method: sudo
+    apt:
+      name: libssl-doc
+      state: present
+      install_recommends: yes
+
+  - name: ROR | Install Ruby on Rails dependencies - zlib1g-dev
+    become: true
+    become_method: sudo
+    apt:
+      name: zlib1g-dev
+      state: present
+      install_recommends: yes
+
+  - name: ROR | Install Ruby on Rails dependencies - libreadline-dev
+    become: true
+    become_method: sudo
+    apt:
+      name: libreadline-dev
+      state: present
+      install_recommends: yes
+
+  - name: ROR | Install Ruby on Rails dependencies - libyaml-dev
+    become: true
+    become_method: sudo
+    apt:
+      name: libyaml-dev
+      state: present
+      install_recommends: yes
+
+  - name: ROR | Install Ruby on Rails dependencies - libsqlite3-dev
+    become: true
+    become_method: sudo
+    apt:
+      name: libsqlite3-dev
+      state: present
+      install_recommends: yes
+
+  - name: ROR | Install Ruby on Rails dependencies - sqlite3
+    become: true
+    become_method: sudo
+    apt:
+      name: sqlite3
+      state: present
+      install_recommends: yes
+
+  - name: ROR | Install Ruby on Rails dependencies - libxml2-dev
+    become: true
+    become_method: sudo
+    apt:
+      name: libxml2-dev
+      state: present
+      install_recommends: yes
+
+  - name: ROR | Install Ruby on Rails dependencies - libxslt1-dev
+    become: true
+    become_method: sudo
+    apt:
+      name: libxslt1-dev
+      state: present
+      install_recommends: yes
+
+  - name: ROR | Install Ruby on Rails dependencies - libcurl4-openssl-dev
+    become: true
+    become_method: sudo
+    apt:
+      name: libcurl4-openssl-dev
+      state: present
+      install_recommends: yes
+
+  - name: ROR | Install Ruby on Rails dependencies - python-software-properties
+    become: true
+    become_method: sudo
+    apt:
+      name: python-software-properties
+      state: present
+      install_recommends: yes
+
+  - name: ROR | Install Ruby on Rails dependencies - libffi-dev
+    become: true
+    become_method: sudo
+    apt:
+      name: libffi-dev
+      state: present
+      install_recommends: yes
+
+  - name: ROR | Git clone rbenv
+    git:
+      repo: https://github.com/rbenv/rbenv.git
+      dest: ~/.rbenv
+
+  - name: ROR | Git clone ruby-build
+    git:
+      repo: https://github.com/rbenv/ruby-build.git
+      dest: ~/.rbenv/plugins/ruby-build
+
+# Always error: /bin/bash: line 1: rbenv: command not found
+# /bin/bash: line 3: ruby: command not found
+# /bin/bash: line 4: gem: command not found
+  - name: ROR | Setup ruby-build
+    shell: |
+      echo 'export PATH="$HOME/.rbenv/bin:$HOME/.rbenv/plugins/ruby-build/bin:$PATH"' >> ~/.profile
+      echo 'eval "$(rbenv init -)"' >> ~/.profile
+      exit 0
+    args:
+      chdir: ~/
+
+  - name: ROR | Install Ruby
+    shell: |
+      source ~/.profile
+      rbenv install "{{ ruby_version }}"
+      rbenv global "{{ ruby_version }}"
+      ruby -v
+      gem install bundler
+      gem install rails -v "{{ rails_version }}"
+      rbenv rehash
+      rails -v
+      exit 0
+
+#  - name: ROR | Setup ruby-build
+#    shell: /vagrant/provisioning/setup_rbenv.sh
+#    args:
+#      chdir: ~/
+
+  - name: ROR | Install MySQL Client
+    become: true
+    become_method: sudo
+    apt:
+      name: mysql-client
+    with_items:
+      - libmysqlclient-dev
