@@ -370,6 +370,32 @@
       state: present
       create: yes
 
+  - name: Node.js | Downloading nodesource_setup
+    become: true
+    become_method: sudo
+    get_url:
+      url: https://deb.nodesource.com/setup_6.x
+      dest: /home/ubuntu/nodesource_setup.sh
+      force: yes
+      mode: 0744
+
+  - name: Node.js | Run nodesource_setup
+    become: true
+    become_method: sudo
+    shell: |
+      /home/ubuntu/nodesource_setup.sh
+      exit 0
+    args:
+      chdir: /home/ubuntu/
+
+  - name: Node.js | Install Node.js
+    become: true
+    become_method: sudo
+    apt:
+      name: nodejs
+      state: present
+      update_cache: yes
+
   - name: Jenkins | Download Jenkins key
     become: true
     become_method: sudo

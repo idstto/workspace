@@ -19,6 +19,7 @@ It's my workspace, I am using this workspace.
 * [NGINX] - Web server
 * [PHP] - Server-side scripting language
 * [GO] - The Go Programming Language
+* [Node.js] - Node.js
 * [Jenkins] - Automation server
 ### Web #1
 * [Ruby] - Programming language
